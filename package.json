@@ -3,45 +3,122 @@
   "version": "0.1.0",
   "description": "Low-level 2D geometry, transforms, spatial indexing and canvas rendering for TypeScript.",
   "type": "module",
-  "private": true,
   "sideEffects": false,
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./bounds": { "types": "./dist/bounds.d.ts", "import": "./dist/bounds.js" },
-    "./camera": { "types": "./dist/camera.d.ts", "import": "./dist/camera.js" },
-    "./convex": { "types": "./dist/convex.d.ts", "import": "./dist/convex.js" },
-    "./coords": { "types": "./dist/coords.d.ts", "import": "./dist/coords.js" },
-    "./depth": { "types": "./dist/depth.d.ts", "import": "./dist/depth.js" },
-    "./draw": { "types": "./dist/draw.d.ts", "import": "./dist/draw.js" },
-    "./edge": { "types": "./dist/edge.d.ts", "import": "./dist/edge.js" },
-    "./geom": { "types": "./dist/geom.d.ts", "import": "./dist/geom.js" },
-    "./line": { "types": "./dist/line.d.ts", "import": "./dist/line.js" },
-    "./polyline": { "types": "./dist/polyline.d.ts", "import": "./dist/polyline.js" },
-    "./render": { "types": "./dist/render.d.ts", "import": "./dist/render.js" },
-    "./server/render": { "types": "./dist/server/render.d.ts", "import": "./dist/server/render.js" },
-    "./size": { "types": "./dist/size.d.ts", "import": "./dist/size.js" },
-    "./spatial": { "types": "./dist/spatial.d.ts", "import": "./dist/spatial.js" },
-    "./types": { "types": "./dist/types.d.ts", "import": "./dist/types.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./bounds": {
+      "types": "./dist/bounds.d.ts",
+      "import": "./dist/bounds.js"
+    },
+    "./camera": {
+      "types": "./dist/camera.d.ts",
+      "import": "./dist/camera.js"
+    },
+    "./convex": {
+      "types": "./dist/convex.d.ts",
+      "import": "./dist/convex.js"
+    },
+    "./coords": {
+      "types": "./dist/coords.d.ts",
+      "import": "./dist/coords.js"
+    },
+    "./depth": {
+      "types": "./dist/depth.d.ts",
+      "import": "./dist/depth.js"
+    },
+    "./draw": {
+      "types": "./dist/draw.d.ts",
+      "import": "./dist/draw.js"
+    },
+    "./edge": {
+      "types": "./dist/edge.d.ts",
+      "import": "./dist/edge.js"
+    },
+    "./geom": {
+      "types": "./dist/geom.d.ts",
+      "import": "./dist/geom.js"
+    },
+    "./line": {
+      "types": "./dist/line.d.ts",
+      "import": "./dist/line.js"
+    },
+    "./polyline": {
+      "types": "./dist/polyline.d.ts",
+      "import": "./dist/polyline.js"
+    },
+    "./render": {
+      "types": "./dist/render.d.ts",
+      "import": "./dist/render.js"
+    },
+    "./server/render": {
+      "types": "./dist/server/render.d.ts",
+      "import": "./dist/server/render.js"
+    },
+    "./size": {
+      "types": "./dist/size.d.ts",
+      "import": "./dist/size.js"
+    },
+    "./spatial": {
+      "types": "./dist/spatial.d.ts",
+      "import": "./dist/spatial.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "docs"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc -p tsconfig.json",
     "test": "bun test src",
-    "verify": "bun run check && bun test src && bun run build"
+    "verify": "bun run check && bun test src && bun run build && bun run package:check",
+    "prepack": "bun run build",
+    "package:check": "node scripts/verify-package-contract.mjs"
   },
-  "keywords": ["typescript", "geometry", "canvas", "spatial-index", "2d", "rendering"],
-  "author": { "name": "Artem Prianishnikov", "email": "Pryanishnikovartem@gmail.com", "url": "https://frankfmy.com" },
+  "keywords": [
+    "typescript",
+    "geometry",
+    "canvas",
+    "spatial-index",
+    "2d",
+    "rendering"
+  ],
+  "author": {
+    "name": "Artem Prianishnikov",
+    "email": "Pryanishnikovartem@gmail.com",
+    "url": "https://frankfmy.com"
+  },
   "license": "MIT",
   "homepage": "https://frankfmy.com",
-  "repository": { "type": "git", "url": "git+https://github.com/FrankFMY/canvas-geometry.git" },
-  "bugs": { "url": "https://github.com/FrankFMY/canvas-geometry/issues" },
-  "engines": { "node": ">=20" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FrankFMY/canvas-geometry.git"
+  },
+  "bugs": {
+    "url": "https://github.com/FrankFMY/canvas-geometry/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "packageManager": "bun@1.4.0",
   "devDependencies": {
     "@happy-dom/global-registrator": "20.11.6",
     "@types/bun": "1.4.0",
     "@types/node": "^24.0.0",
     "typescript": "^6.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
