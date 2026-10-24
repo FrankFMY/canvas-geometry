@@ -256,6 +256,7 @@ class iConvex {
 				{ x: p.x + radius, y: p.y },
 				{ x: p.x, y: p.y + radius },
 				{ x: p.x - radius, y: p.y },
+				{ x: p.x, y: p.y - radius },
 			];
 		}
 
@@ -275,6 +276,7 @@ class iConvex {
 				{ x: b.x + ux * radius, y: b.y + uy * radius },
 				{ x: b.x - nx * radius, y: b.y - ny * radius },
 				{ x: a.x - nx * radius, y: a.y - ny * radius },
+				{ x: a.x - ux * radius, y: a.y - uy * radius },
 			];
 		}
 
@@ -506,22 +508,28 @@ class iConvex {
 	}
 
 	/**
-	 * Линия ⋂ полигон: точка линии строго внутри полигона.
-	 *
-	 * 1. конец линии строго внутри → `true`;
-	 * 2. линия пересекает ребро полигона строго внутри обоих → `true`.
-	 *
-	 * `chordTest` избыточен для выпуклого полигона: если линия проходит через interior, то либо конец внутри, либо рёбра строго пересекаются.
+	 * An open segment intersects a polygon interior when an endpoint is inside, edges cross strictly,
+	 * or the span between contour intersections contains an owned point. The last case includes
+	 * crossings through polygon corners and checks the clipped span, not the whole segment midpoint.
 	 */
 	__edgePolygon(edge: CT.Edge, poly: CT.Convex, EPS = this.__eps): boolean {
 		if (this.has(poly, edge[0], EPS) || this.has(poly, edge[1], EPS)) return true;
 
+		let first = Infinity;
+		let last = -Infinity;
 		for (const pe of this.edges(poly)) {
 			const c = UE.cross(edge, pe);
 			if (Array.isArray(c) && UD.has(c[1], EPS) && UD.has(c[2], EPS)) return true;
+			if (Array.isArray(c) && UD.at(c[1], EPS) && UD.at(c[2], EPS)) {
+				const t = Math.max(0, Math.min(1, (c[1][0] + 1) / 2));
+				first = Math.min(first, t);
+				last = Math.max(last, t);
+			}
 		}
 
-		return false;
+		if (first >= last) return false;
+		const point = UC2.lerp(edge[0], edge[1], (first + last) / 2);
+		return this.has(poly, point, EPS) && UD.has(UE.depth(edge, point), EPS);
 	}
 
 	/**
@@ -581,8 +589,8 @@ class iConvex {
 	 *
 	 * @param direction - направление выталкивания `a`:
 	 * - `"top"`/`"bottom"`/`"left"`/`"right"` — `a` толкается вдоль мировой оси (Y-вниз: `bottom = +y`, `top = −y`). Делегирует в {@link UB.mtv} от bbox.
-	 * - `"min"` (по умолчанию) — SAT: перебор нормалей рёбер обоих полигонов, выбирается ось с минимальным перекрытием;
-	 * `a` выталкивается «наружу» от центра `b` к центру `a`. Для вырожденных фигур (точка/линия) — fallback на AABB-min через {@link UB.mtv};
+	 * - `"min"` (default) — SAT: choose the shortest signed escape along either polygon's edge normals.
+	 * Equal escape distances use the direction from `b`'s center to `a`'s center; points and lines fall back to {@link UB.mtv}.
 	 *
 	 * @returns `null`, если коллизии нет ({@link iConvex.collision} → `false`).
 	 */
@@ -603,7 +611,7 @@ class iConvex {
 		const b_center = this.center(b);
 		const dir = UC2.direct(b_center, a_center);
 
-		let min_overlap = Infinity;
+		let min_displacement = Infinity;
 		let min_axis: CT.C2 | null = null;
 
 		const axes: CT.C2[] = [];
@@ -616,19 +624,21 @@ class iConvex {
 			const [b_min, b_max] = this.__projectAxis(b, axis);
 			const overlap = Math.min(a_max, b_max) - Math.max(a_min, b_min);
 			if (overlap <= this.__eps) return null;
-			if (overlap < min_overlap) {
-				min_overlap = overlap;
+			const negative = b_min - a_max;
+			const positive = b_max - a_min;
+			const projection = dir.x * axis.x + dir.y * axis.y;
+			const displacement = positive < -negative || (positive === -negative && projection > 0) ? positive : negative;
+			if (Math.abs(displacement) < Math.abs(min_displacement)) {
+				min_displacement = displacement;
 				min_axis = axis;
 			}
 		}
 
 		if (!min_axis) return { x: 0, y: 0 };
 
-		const projection = UC2.vect(dir, min_axis);
-		const sign = projection > 0 ? 1 : -1;
 		return {
-			x: min_axis.x * sign * min_overlap,
-			y: min_axis.y * sign * min_overlap,
+			x: min_axis.x * min_displacement,
+			y: min_axis.y * min_displacement,
 		};
 	}
 

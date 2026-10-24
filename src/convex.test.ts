@@ -33,6 +33,7 @@ describe("Convex.create", () => {
 			{ x: 110, y: 0 },
 			{ x: 100, y: 10 },
 			{ x: 0, y: 10 },
+			{ x: -10, y: 0 },
 		]);
 	});
 
@@ -51,6 +52,7 @@ describe("Convex.create", () => {
 			{ x: 110, y: 0 },
 			{ x: 100, y: 10 },
 			{ x: 0, y: 10 },
+			{ x: -10, y: 0 },
 		]);
 	});
 
@@ -69,6 +71,7 @@ describe("Convex.create", () => {
 			{ x: 50, y: 110 },
 			{ x: 40, y: 100 },
 			{ x: 40, y: 0 },
+			{ x: 50, y: -10 },
 		]);
 	});
 
@@ -79,7 +82,8 @@ describe("Convex.create", () => {
 		];
 
 		const result = Convex.create(points, 10);
-		expect(result.length).toBe(6);
+		expect(result.length).toBe(7);
+		expect(result[6]).toEqual(result[0]);
 
 		const r = 10 / SQ2;
 		expect(UC2.eq(result[0], { x: -r, y: -r }, 0.005)).toBe(true);
@@ -106,6 +110,7 @@ describe("Convex.create", () => {
 			{ x: 110, y: 0 },
 			{ x: 100, y: 10 },
 			{ x: 0, y: 10 },
+			{ x: -10, y: 0 },
 		]);
 	});
 
@@ -243,6 +248,7 @@ describe("Convex.inflate", () => {
 			{ x: 15, y: 5 },
 			{ x: 5, y: 15 },
 			{ x: -5, y: 5 },
+			{ x: 5, y: -5 },
 		]);
 		expect(area2(result)).toBeGreaterThan(0);
 	});
@@ -261,6 +267,7 @@ describe("Convex.inflate", () => {
 			{ x: 15, y: 5 },
 			{ x: 5, y: 15 },
 			{ x: -5, y: 5 },
+			{ x: 5, y: -5 },
 		]);
 	});
 
@@ -280,6 +287,7 @@ describe("Convex.inflate", () => {
 			{ x: 110, y: 0 },
 			{ x: 100, y: 10 },
 			{ x: 0, y: 10 },
+			{ x: -10, y: 0 },
 		]);
 		expect(area2(result)).toBeGreaterThan(0);
 	});
@@ -300,6 +308,7 @@ describe("Convex.inflate", () => {
 			{ x: 50, y: 110 },
 			{ x: 40, y: 100 },
 			{ x: 40, y: 0 },
+			{ x: 50, y: -10 },
 		]);
 	});
 
