@@ -1,8 +1,6 @@
 import { UB } from "./bounds.js";
 import { Convex } from "./convex.js";
 import { UC2 } from "./coords.js";
-import { UD } from "./depth.js";
-import { UE } from "./edge.js";
 import { UPL } from "./polyline.js";
 import type * as CT from "./types.js";
 
@@ -183,47 +181,26 @@ class iUG {
 	}
 
 	/**
-	 * `Bounds ⋂ Polyline`: 1D-interior ломаной пересекает 2D-interior `Bounds`.
-	 *
-	 * Значащая точка ломаной (открытый сегмент или внутренняя вершина) строго внутри `Bounds`:
-	 * - внутренняя вершина `g[1..n-2]` строго внутри ({@link UB.has});
-	 * - для каждого сегмента: конец строго внутри `Bounds` ({@link UB.has}, открытый сегмент рядом с ним строго внутри)
-	 *   **или** сегмент строго пересекает ребро `Bounds` ({@link UE.cross} + {@link UD.has} по обоим) — вход в interior.
+	 * Bounds use the same closed-contour ownership checks as convexes, including point and edge degeneracy.
 	 */
 	__collisionBoundsPolyline(bounds: CT.Bounds, poly: CT.Polyline, EPS: number): boolean {
-		for (let i = 1; i < poly.length - 1; i++) {
-			if (UB.has(bounds, poly[i], EPS)) return true;
-		}
-		const bEdges = UB.edges(bounds);
-		for (const seg of UPL.edges(poly)) {
-			if (UB.has(bounds, seg[0], EPS) || UB.has(bounds, seg[1], EPS)) return true;
-			for (const be of bEdges) {
-				const c = UE.cross(seg, be);
-				if (Array.isArray(c) && UD.has(c[1], EPS) && UD.has(c[2], EPS)) return true;
-			}
-		}
-		return false;
+		return this.__collisionConvexPolyline(this.convex(bounds), poly, EPS);
 	}
 
 	/**
-	 * `Convex ⋂ Polyline`: 1D-interior ломаной пересекает 2D-interior `Convex`.
-	 *
-	 * Значащая точка ломаной строго внутри `Convex`:
-	 * - внутренняя вершина `g[1..n-2]` строго внутри ({@link Convex.has});
-	 * - для каждого сегмента: конец строго внутри `Convex` (открытый сегмент рядом с ним строго внутри)
-	 *   **или** сегмент строго пересекает ребро `Convex` ({@link UE.cross} + {@link UD.has} по обоим) — вход в interior.
+	 * Classify degenerate polylines before testing internal vertices and open segments.
+	 * Segment collisions share {@link Convex.collision}, including crossings through polygon corners.
 	 */
 	__collisionConvexPolyline(convex: CT.Convex, poly: CT.Polyline, EPS: number): boolean {
+		const grade = UPL.is(poly, EPS);
+		if (grade.type === "empty") return false;
+		if (grade.type === "point") return Convex.has(convex, grade.point, EPS);
+		if (grade.type === "edge") return Convex.collision(convex, grade.edge, EPS);
 		for (let i = 1; i < poly.length - 1; i++) {
 			if (Convex.has(convex, poly[i], EPS)) return true;
 		}
-		const cEdges = Convex.edges(convex);
 		for (const seg of UPL.edges(poly)) {
-			if (Convex.has(convex, seg[0], EPS) || Convex.has(convex, seg[1], EPS)) return true;
-			for (const ce of cEdges) {
-				const c = UE.cross(seg, ce);
-				if (Array.isArray(c) && UD.has(c[1], EPS) && UD.has(c[2], EPS)) return true;
-			}
+			if (Convex.collision(convex, seg, EPS)) return true;
 		}
 		return false;
 	}

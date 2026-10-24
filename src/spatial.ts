@@ -97,6 +97,14 @@ export interface SpatialQueryOpts {
  * мир нужен редко, поэтому здесь дешевизна per-op не критична (см. `__dirty`/`__recompute`).
  * Слайсы ({@link SpatialView}) обновляются точечными хуками `__upsert`/`__delete`, независимо от грида.
  */
+function assertIterableRange(range: CT.Bounds): boolean {
+	if (range.minX > range.maxX || range.minY > range.maxY) return false;
+	if (![range.minX, range.minY, range.maxX, range.maxY].every(Number.isSafeInteger)) {
+		throw new RangeError("Spatial cell range must use safe finite integer indices");
+	}
+	return true;
+}
+
 export class Spatial {
 	/** Индекс: `id` → элемент. Хранится как `Map` для O(1) `get`/`set`/`delete` по `id`; источник истины для геометрии (грид хранит лишь `id`). */
 	__index = new Map<string, SpatialItem>();
@@ -130,6 +138,7 @@ export class Spatial {
 	 * Дефолт `128` рассчитан на объекты 20×20…500×500 и экранный фрустум ~1920×1080.
 	 */
 	constructor(cell: number = 128) {
+		if (!Number.isFinite(cell) || cell <= 0) throw new RangeError("Spatial cell size must be finite and positive");
 		this.__cell = cell;
 	}
 
@@ -262,6 +271,7 @@ export class Spatial {
 	 * Ячейки создаются лениво.
 	 */
 	__insertRange(id: string, r: CT.Bounds): void {
+		if (!assertIterableRange(r)) return;
 		for (let cx = r.minX; cx <= r.maxX; cx++) {
 			for (let cy = r.minY; cy <= r.maxY; cy++) {
 				const key = this.__key(cx, cy);
@@ -292,6 +302,7 @@ export class Spatial {
 	 * Опустевшие ячейки удаляются из {@link Spatial.__cells}. Используется в `upsert`/`delete` с уже известным диапазоном.
 	 */
 	__removeRange(id: string, r: CT.Bounds): void {
+		if (!assertIterableRange(r)) return;
 		for (let cx = r.minX; cx <= r.maxX; cx++) {
 			for (let cy = r.minY; cy <= r.maxY; cy++) {
 				const key = this.__key(cx, cy);
@@ -322,12 +333,10 @@ export class Spatial {
 	 *
 	 * ## Equality short-circuit (макс. перф на горячем пути)
 	 *
-	 * Для существующего `id` сначала сравниваются AABB старой и новой геометрии:
-	 * - `UB.eq(prev_box, new_box)` при неизменной роли `virtual` — AABB **не изменился** → грид и world-охват
-	 *   не трогаются (геометрия ниже может отличаться при том же AABB, поэтому `__index` и слайсы обновляются).
-	 *   Гасит ложный `__dirty` от `interior`-элемента при идемпотентной перезаписи (иначе → O(n) `__recompute`).
-	 * - иначе сравниваются **клеточные диапазоны** `UB.index(·, cell)`: если совпадают → `__remove`+`__insert` skip
-	 *   (id уже в нужных ячейках), но world-охват пересчитывается (AABB изменился в пределах тех же ячеек).
+	 * For an existing `id`, compare quantized cell ranges exactly before applying tolerant AABB equality.
+	 * Equal ranges reuse the existing buckets; even an epsilon-close move can cross a cell boundary.
+	 * `UB.eq(prev_box, new_box)` with an unchanged virtual role still avoids unnecessary world-bound
+	 * invalidation. Stored geometry and slices are updated in either case.
 	 *
 	 * Если старые `bounds` лежали внутри (`UB.interior`) и AABB изменился — маркирует `__dirty` (точное схлопывание
 	 * охвата неизвестно). Новые выступающие расширяют аккумулятор охвата. Каждый `slice` получает `__upsert`.
@@ -348,6 +357,7 @@ export class Spatial {
 	upsert(...items: SpatialItem[]): void {
 		if (items.length === 0) return;
 		const batch = items.length === 1 ? items : [...new Map(items.map((item) => [item.id, item] as const)).values()];
+		for (const item of batch) assertIterableRange(UB.index(UG.bound(Spatial.geom(item)), this.__cell));
 
 		// Пустой индекс: world-охват строится с нуля от не-`virtual` элементов. `this.__bounds` в этом состоянии = `zero()`
 		// (точка в origin), и union с ним загрязнил бы охват — поэтому аккумулятор стартует от `infinity`.
@@ -377,13 +387,11 @@ export class Spatial {
 				if (!isVirtual(item) || (prev && !isVirtual(prev))) touched_real = true;
 				if (prev) {
 					const prev_box = UG.bound(Spatial.geom(prev));
-					if (!UB.eq(prev_box, new_box)) {
-						const prev_r = UB.index(prev_box, this.__cell);
-						const new_r = UB.index(new_box, this.__cell);
-						if (prev_r.minX !== new_r.minX || prev_r.minY !== new_r.minY || prev_r.maxX !== new_r.maxX || prev_r.maxY !== new_r.maxY) {
-							this.__removeRange(item.id, prev_r);
-							this.__insertRange(item.id, new_r);
-						}
+					const prev_r = UB.index(prev_box, this.__cell);
+					const new_r = UB.index(new_box, this.__cell);
+					if (prev_r.minX !== new_r.minX || prev_r.minY !== new_r.minY || prev_r.maxX !== new_r.maxX || prev_r.maxY !== new_r.maxY) {
+						this.__removeRange(item.id, prev_r);
+						this.__insertRange(item.id, new_r);
 					}
 				} else {
 					this.__insertRange(item.id, UB.index(new_box, this.__cell));
@@ -405,13 +413,13 @@ export class Spatial {
 			if (prev) {
 				const prev_box = UG.bound(Spatial.geom(prev));
 				if (isVirtual(prev) !== isVirtual(item)) dirty = true;
+				const prev_r = UB.index(prev_box, this.__cell);
+				const new_r = UB.index(new_box, this.__cell);
+				if (prev_r.minX !== new_r.minX || prev_r.minY !== new_r.minY || prev_r.maxX !== new_r.maxX || prev_r.maxY !== new_r.maxY) {
+					this.__removeRange(item.id, prev_r);
+					this.__insertRange(item.id, new_r);
+				}
 				if (!UB.eq(prev_box, new_box)) {
-					const prev_r = UB.index(prev_box, this.__cell);
-					const new_r = UB.index(new_box, this.__cell);
-					if (prev_r.minX !== new_r.minX || prev_r.minY !== new_r.minY || prev_r.maxX !== new_r.maxX || prev_r.maxY !== new_r.maxY) {
-						this.__removeRange(item.id, prev_r);
-						this.__insertRange(item.id, new_r);
-					}
 					// `prev.virtual` ⇒ его бокса не было в `__bounds`, схлопывание охвата не грозит — `__dirty` не нужен.
 					if (!isVirtual(prev) && UB.interior(this.__bounds, prev_box)) dirty = true;
 				}
@@ -497,12 +505,27 @@ export class Spatial {
 	/**
 	 * Диапазон ячеек грида, покрывающий AABB `box`, с обходом кандидатов через `visit`.
 	 *
-	 * Общий broad-phase для {@link Spatial.query}/{@link Spatial.radial}: перебирает только непустые ячейки в диапазоне
+	 * Общий broad-phase для {@link Spatial.query}/{@link Spatial.ray}/{@link Spatial.radial}: перебирает ячейки в диапазоне
 	 * и отдаёт наружу каждый `id`. Дедупликацию (объект в нескольких ячейках) и точную фазу делает вызывающий —
 	 * это позволяет query копить `Set`, а radial — `Map` с расстояниями, не плодя промежуточных коллекций кандидатов.
+	 * With `padding`, include epsilon-neighbor cells without changing stored AABBs or the precise predicate.
+	 * Empty/unsafe original ranges are checked before expansion; unusually fine grids fall back to the finite index
+	 * rather than walking an epsilon-sized region containing arbitrarily many empty cells.
 	 */
-	__scan(box: CT.Bounds, visit: (id: string) => void): void {
-		const r = UB.index(box, this.__cell);
+	__scan(box: CT.Bounds, visit: (id: string) => void, padding = 0): void {
+		if (box.minX > box.maxX || box.minY > box.maxY) return;
+		let r = UB.index(box, this.__cell);
+		if (!assertIterableRange(r)) return;
+		if (padding > 0) {
+			r = UB.index({ minX: box.minX - padding, minY: box.minY - padding, maxX: box.maxX + padding, maxY: box.maxY + padding }, this.__cell);
+			// Expansion can exceed even safe cell indices for a valid, extremely small cell size.
+			// The original range is already validated; scan the finite index rather than that empty space.
+			if (![r.minX, r.minY, r.maxX, r.maxY].every(Number.isSafeInteger)
+				|| (r.maxX - r.minX + 1) * (r.maxY - r.minY + 1) > Math.max(9, this.__index.size)) {
+				for (const id of this.__index.keys()) visit(id);
+				return;
+			}
+		}
 		for (let cx = r.minX; cx <= r.maxX; cx++) {
 			for (let cy = r.minY; cy <= r.maxY; cy++) {
 				const cell = this.__cells.get(this.__key(cx, cy));
@@ -515,8 +538,9 @@ export class Spatial {
 	/**
 	 * Найти все `id`, чья геометрия имеет общую значащую точку с `geom` (канон владения).
 	 *
-	 * Broad-phase: собирает кандидатов только из ячеек грида, задетых AABB `geom` ({@link UG.bound} → {@link Spatial.__scan}) —
-	 * стоимость пропорциональна размеру запроса, а не размеру мира (ради этого грид и вводился).
+	 * Broad-phase: scan the AABB of `geom` expanded by {@link UG.__eps} per axis. Coordinate equality in
+	 * `UG.collision` is inclusive within that tolerance, even across cell boundaries. Stored AABBs stay exact;
+	 * ordinary queries remain grid-local, with a finite index fallback when scanning cells would cost more.
 	 * Precise-phase: {@link UG.collision}. Объект, задевающий несколько ячеек, проверяется точной коллизией не более одного
 	 * раза (короткое замыкание через `acc.has`).
 	 *
@@ -540,32 +564,30 @@ export class Spatial {
 			if (!item) return;
 			if (!includeVirtual && isVirtual(item)) return;
 			if (UG.collision(Spatial.geom(item), geom)) acc.add(id);
-		});
+		}, UG.__eps);
 		return acc;
 	}
 
 	/**
 	 * Найти все `id`, чья геометрия **владеет** точкой `p` (строго внутри по канону).
 	 *
-	 * Точка лежит ровно в одной ячейке (`floor(p / cell)`), поэтому broad-phase — это одна ячейка: идеальный случай для
-	 * сверхчастого «что под курсором». Корректность мультиячеечной вставки гарантирует, что любой владеющий `p` объект
-	 * присутствует в этой ячейке (его AABB содержит `p`, значит задевает её).
+	 * Broad-phase includes the cells touched by `p ± UG.__eps`, matching tolerant point/degenerate ownership.
+	 * Away from a cell boundary this still visits one cell; exact {@link UG.has} rejects false candidates.
 	 *
 	 * Элементы с `virtual: true` всегда пропускаются — по ним нельзя попасть через `ray`.
 	 *
 	 * @remarks
 	 * Как и {@link Spatial.query}, **не** трогает геттер {@link Spatial.bounds}: quick-reject по охвату мира спровоцировал бы
-	 * ленивый `__recompute` на каждом промахе курсора. Единственный `Map.get` пустой ячейки и так отсекает мимо-клик мгновенно.
+	 * ленивый `__recompute` на каждом промахе курсора. Пустые соседние ячейки отсекают мимо-клик без пересчёта мира.
 	 */
 	ray(p: CT.C2): Set<string> {
 		const acc = new Set<string>();
 		if (this.__index.size === 0) return acc;
-		const cell = this.__cells.get(this.__key(Math.floor(p.x / this.__cell), Math.floor(p.y / this.__cell)));
-		if (!cell) return acc;
-		for (const id of cell) {
+		this.__scan(UB.zero(p.x, p.y), (id) => {
+			if (acc.has(id)) return;
 			const item = this.__index.get(id);
 			if (item && !isVirtual(item) && UG.has(Spatial.geom(item), p)) acc.add(id);
-		}
+		}, UG.__eps);
 		return acc;
 	}
 
@@ -702,7 +724,7 @@ class SpatialView {
 	/** Текущая геометрия подписки (фрустум). Меняется через {@link SpatialView.relocate}. Хранится защитной копией. */
 	geom: CT.Geom;
 
-	/** Контур {@link SpatialView.geom} как CCW `Convex` ({@link UG.convex}). Кэш для быстрых `__upsert` broad-phase collision-проверок. */
+	/** Closed contour of {@link SpatialView.geom}; membership uses the original geometry to preserve ownership. */
 	__convex: CT.Convex;
 
 	/**
@@ -712,8 +734,7 @@ class SpatialView {
 	items: Set<string> = new Set<string>();
 
 	/**
-	 * Конструктор вьюхи: привязывается к `spatial` (через `__slices`), кэширует `__corners` (CCW-полигон от `geom` через
-	 * {@link UG.convex} для быстрых `collision`-проверок), инициализирует `items` через начальный `query` (с `includeVirtual: true`).
+	 * Attach the view to `spatial`, cache its contour, and initialize `items` with a query including virtual items.
 	 *
 	 * Для каждого id, попавшего в начальный фрустум, вызывается `onmount` — это позволяет UI сразу отрисовать уже видимые
 	 * элементы без ожидания первой `upsert` в индексе. `virtual` элементы также включены — они должны монтироваться
@@ -780,13 +801,13 @@ class SpatialView {
 	}
 
 	/**
-	 * Обработчик `upsert` от родительского `Spatial`: дифф между «был в items» и «стал пересекать `__corners`» — триггерит `onmount` или `onfrustum` соответственно.
+	 * Handle an upsert against the owned query geometry, calling `onmount` or `onfrustum` when membership changes.
 	 *
 	 * Если элемент и до и после в/вне фрустума — хуки не вызываются (избегаем шума на «движущихся в фрустуме» элементах, чья геометрия обновляется каждый кадр).
 	 */
 	__upsert(item: SpatialItem): void {
 		const was_in = this.items.has(item.id);
-		const is_in_after = UG.collision(this.__convex, Spatial.geom(item));
+		const is_in_after = UG.collision(Spatial.geom(item), this.geom);
 		if (was_in && !is_in_after) {
 			this.items.delete(item.id);
 			this.__hooks.onfrustum?.(item.id);
@@ -828,7 +849,7 @@ class SpatialView {
 	}
 
 	/**
-	 * Поиск точки `p` во вьюхе. Делегирует в грид-ускоренный {@link Spatial.ray} (одна ячейка грида) —
+	 * Поиск точки `p` во вьюхе. Делегирует в грид-ускоренный {@link Spatial.ray} (соседние ячейки с учётом epsilon) —
 	 * это дешевле любого прохода по `items` и не промахивается по объекту под курсором, вышедшим за фрустум.
 	 * Виртуальные элементы не возвращаются.
 	 */

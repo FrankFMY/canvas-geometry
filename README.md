@@ -1,116 +1,97 @@
 # Canvas Geometry
 
-Low-level 2D geometry, transforms, spatial indexing, and Canvas rendering for TypeScript.
+Low-level TypeScript tools for 2D geometry, ownership-aware hit testing, spatial indexing, camera transforms and Canvas 2D drawing. Dependency-free at runtime; ESM JavaScript and declarations, with focused subpath imports.
 
-I built this package for editors, diagrams, spatial interfaces, CAD-like tools, and canvas-heavy applications that need one explicit geometry model across browser rendering, hit testing, camera transforms, collision checks, and deterministic server-side animation stepping.
+[API guide](docs/API.md) · [Geometry conventions](docs/CONVENTIONS.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [npm package](https://www.npmjs.com/package/@frankfmy/canvas-geometry)
 
-## Capabilities
+## Installation
 
-- points, vectors, sizes, bounds, edges, lines, polylines, and convex polygons;
-- coordinate arithmetic, interpolation, projection, rotation, depth, and transforms;
-- open-boundary ownership and inclusive contour predicates;
-- collision and nearest-point operations across geometry kinds;
-- camera world/screen transforms;
-- a uniform-grid spatial index with virtual items and lifecycle hooks;
-- fluent Canvas 2D drawing helpers;
-- device-pixel-ratio-aware `HTMLCanvasElement` wrapper;
-- browser render loop and deterministic server render loop;
-- DOM and `OffscreenCanvasRenderingContext2D` typing;
-- 1,627 behavior tests covering geometry, degenerate cases, spatial lifecycle, rendering, and coordinate round trips.
+When the desired version is available on npm:
 
-## Coordinate conventions
-
-Geometry uses a mathematical plane:
-
-- positive X points right;
-- positive Y points up;
-- positive rotation is counter-clockwise;
-- polygon winding is counter-clockwise;
-- the default epsilon is `1e-5` where tolerant comparisons are used.
-
-The DOM Canvas wrapper explicitly converts viewport/element coordinates into device-pixel world coordinates, so browser top-left layout coordinates do not silently redefine the geometry model.
-
-See [docs/CONVENTIONS.md](docs/CONVENTIONS.md) before integrating collision or ownership semantics.
-
-## Examples
-
-### Coordinates and bounds
-
-```ts
-import { UC2 } from "@frankfmy/canvas-geometry/coords";
-import { UB } from "@frankfmy/canvas-geometry/bounds";
-
-const direction = UC2.direct({ x: 2, y: 3 }, { x: 7, y: 11 });
-const rotated = UC2.rotate({ x: 3, y: 7 }, { x: 0, y: 0 }, Math.PI / 2);
-const bounds = UB.fromPoints([
-  { x: -2, y: 4 },
-  { x: 8, y: 12 },
-]);
+```sh
+npm install @frankfmy/canvas-geometry@0.1.1
 ```
 
-### Spatial index
+The source checkout works independently of registry publication:
 
-```ts
-import { Spatial } from "@frankfmy/canvas-geometry/spatial";
-
-const spatial = new Spatial({ cell: { w: 128, h: 128 } });
-spatial.upsert({
-  id: "node-1",
-  geom: { minX: 10, minY: 20, maxX: 90, maxY: 80 },
-});
-```
-
-### Canvas wrapper
-
-```ts
-import { Canvas } from "@frankfmy/canvas-geometry";
-
-const element = document.querySelector("canvas");
-if (!(element instanceof HTMLCanvasElement)) throw new Error("canvas missing");
-
-const canvas = new Canvas(element, {
-  smoothing: { imageSmoothingEnabled: true, imageSmoothingQuality: "high" },
-});
-
-canvas.clear();
-canvas.drw.scope((draw) => {
-  // draw with explicit transform/style scope
-});
-```
-
-## Entry points
-
-The root exports the browser `Canvas` wrapper. Focused entry points expose:
-
-`bounds`, `camera`, `convex`, `coords`, `depth`, `draw`, `edge`, `geom`, `line`, `polyline`, `render`, `server/render`, `size`, `spatial`, and `types`.
-
-## Package status
-
-The package is published on npm from immutable Git tags. Future releases use npm Trusted Publishing.
-
-```bash
-npm install @frankfmy/canvas-geometry
-```
-
-The first npm version is bootstrapped once from its clean exact tag with interactive account 2FA using `scripts/bootstrap-first-npm-release.sh`; subsequent releases use the repository's OIDC trusted publisher.
-
-## Development
-
-```bash
+```sh
 git clone https://github.com/FrankFMY/canvas-geometry.git
 cd canvas-geometry
 bun install --frozen-lockfile
 bun run verify
+npm pack
 ```
+
+## Geometry and spatial queries
+
+```ts
+import { Spatial } from "@frankfmy/canvas-geometry/spatial";
+import { UB } from "@frankfmy/canvas-geometry/bounds";
+
+const scene = new Spatial(128);
+const box = { minX: 0, minY: 0, maxX: 100, maxY: 60 };
+scene.upsert({ id: "panel", bounds: box });
+console.log([...scene.ray({ x: 20, y: 20 })]); // ["panel"]
+console.log(UB.has(box, { x: 0, y: 20 }));     // false: boundary is not owned
+console.log(UB.at(box, { x: 0, y: 20 }));      // true: boundary contact
+scene.destroy();
+```
+
+Ownership is intentional: `has` is not interchangeable with inclusive `at`. Closed polygons repeat their first vertex; open arrays represent polylines. Read the conventions before adapting generic intersection code.
+
+## Browser drawing
+
+Give the HTML canvas a CSS-controlled size, then construct the wrapper after it is mounted. CSS layout and bitmap resolution are separate; do not rely on the bitmap's intrinsic dimensions to control a high-DPI layout.
+
+```html
+<canvas id="scene" style="width: 320px; height: 180px"></canvas>
+```
+
+```ts
+import { Canvas } from "@frankfmy/canvas-geometry";
+
+const element = document.querySelector<HTMLCanvasElement>("#scene");
+if (!element) throw new Error("Canvas is not mounted");
+const canvas = new Canvas(element);
+canvas.fill("#ffffff");
+canvas.drw.bounds({ minX: 20, minY: 20, maxX: 100, maxY: 70 })
+  .fill({ color: "#2563eb" });
+// Component teardown:
+canvas.destroy();
+```
+
+`Canvas.size` is the physical bitmap size; drawing uses the current Canvas 2D transform, not automatic CSS-pixel scaling. Resize clears the bitmap, so redraw through `observe` when needed. `destroy()` disconnects the wrapper's ResizeObserver; callers own their event listeners, render queues and canvas element.
+
+## Runtime and support
+
+- Pure geometry, all exported module imports, spatial queries and `ServerRender` work without `window` in Node 20/22/24 and Bun. Import safety is not server-side canvas rendering.
+- `Canvas` requires a real `HTMLCanvasElement`, `window`, a 2D context and (unless disabled) `ResizeObserver`. Construct it only after browser mounting. It does not accept an OffscreenCanvas or provide a worker/Node DOM shim.
+- `Draw` accepts Canvas 2D contexts, including an `OffscreenCanvasRenderingContext2D`; the `Canvas` wrapper remains HTML-only.
+- Real Chromium and WebKit package consumers exercise pixels, DPR, pointer conversion, camera transforms, animation frames, native resize and disposal. This is not a blanket browser/OS compatibility claim.
+- ESM only. No CommonJS entry, WebGL renderer, complete scene graph or arbitrary-precision geometry. Inputs, workload limits and positive camera scales remain caller responsibilities.
+
+`Spatial` requires finite positive cells. Nonempty cell ranges must have safe integer indices; unsafe/nonterminating ranges throw `RangeError` before indexing. Finite but enormous grids can still be expensive: bound scene extents and query cost.
+
+## Development
+
+`bun run verify` runs the owning type check, complete unit suite, build and separate-project installed Node/Bun/type consumers. Browser acceptance is explicit:
+
+```sh
+bunx playwright install --with-deps chromium webkit
+RUN_BROWSER=1 bun run package:check
+bun audit
+```
+
+CI keeps Node 20/22/24 checks and a real installed Chromium/WebKit lane. Publishing is manual-only; tests do not publish packages.
 
 ## Author
 
-**Artem Prianishnikov**
+Artem Prianishnikov / FrankFMY.
 
-- GitHub: https://github.com/FrankFMY
-- Website: https://frankfmy.com
-- Email: Pryanishnikovartem@gmail.com
+- Email: [Pryanishnikovartem@gmail.com](mailto:Pryanishnikovartem@gmail.com), [frankfmy@proton.me](mailto:frankfmy@proton.me)
+- [Telegram](https://t.me/FrankFMY) · [LinkedIn](https://www.linkedin.com/in/frankfmy/) · [X](https://x.com/FrankFMY)
+- [Website](https://frankfmy.com) · [GitHub](https://github.com/FrankFMY) · [npm](https://www.npmjs.com/~frankfmy)
 
 ## License
 
-MIT © 2026 Artem Prianishnikov. See [LICENSE](LICENSE).
+[MIT](LICENSE). See the canonical license distributed with the package.

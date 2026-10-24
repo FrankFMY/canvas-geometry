@@ -1,6 +1,6 @@
 {
   "name": "@frankfmy/canvas-geometry",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Low-level 2D geometry, transforms, spatial indexing and canvas rendering for TypeScript.",
   "type": "module",
   "sideEffects": false,
@@ -100,7 +100,7 @@
     "url": "https://frankfmy.com"
   },
   "license": "MIT",
-  "homepage": "https://frankfmy.com",
+  "homepage": "https://github.com/FrankFMY/canvas-geometry#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/FrankFMY/canvas-geometry.git"
@@ -113,10 +113,11 @@
   },
   "packageManager": "bun@1.4.0",
   "devDependencies": {
-    "@happy-dom/global-registrator": "20.11.6",
+    "@happy-dom/global-registrator": "21.0.4",
     "@types/bun": "1.4.0",
     "@types/node": "^24.0.0",
-    "typescript": "^6.0.0"
+    "typescript": "^6.0.0",
+    "playwright": "1.63.0"
   },
   "publishConfig": {
     "access": "public"
